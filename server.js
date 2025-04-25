@@ -5,27 +5,29 @@ const cors = require('cors');
 const app = express();
 const port = process.env.PORT || 3000;
 
-// Middleware
 app.use(cors());
 app.use(express.json());
 
-// Health check
 app.get('/', (req, res) => {
   res.send('Puppeteer service running');
 });
 
-// Scrape endpoint
 app.post('/scrape', async (req, res) => {
   const { url, selectors, actions } = req.body;
 
   console.log('Incoming request to /scrape:', req.body);
 
   if (!url) {
-    return res.status(400).json({ error: 'URL is required' });
+    res.status(400).json({ error: 'URL is required' });
+    return;
   }
 
+  let browser;
+  const results = {};
+
   try {
-    const browser = await puppeteer.launch({
+    browser = await puppeteer.launch({
+      headless: true,
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
@@ -35,13 +37,11 @@ app.post('/scrape', async (req, res) => {
         '--no-zygote',
         '--single-process',
         '--disable-gpu'
-      ],
-      headless: true
+      ]
     });
 
     const page = await browser.newPage();
 
-    // Fake a real user to avoid bot blocking
     await page.setUserAgent(
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
     );
@@ -51,27 +51,25 @@ app.post('/scrape', async (req, res) => {
 
     await page.setViewport({ width: 1280, height: 800 });
 
-    console.log(`Navigating to: ${url}`);
+    console.log(`Navigating to ${url}`);
     await page.goto(url, {
       waitUntil: 'domcontentloaded',
       timeout: 60000
     });
 
-    const results = {};
-
-    // Extract selectors
+    // Handle selectors
     if (selectors) {
       for (const [key, selector] of Object.entries(selectors)) {
         try {
           await page.waitForSelector(selector, { timeout: 5000 });
           results[key] = await page.$eval(selector, el => el.textContent.trim());
         } catch (error) {
-          results[key] = `Error: ${error.message}`;
+          results[key] = `Selector error: ${error.message}`;
         }
       }
     }
 
-    // Perform actions
+    // Handle actions
     if (actions) {
       for (const action of actions) {
         try {
@@ -83,34 +81,26 @@ app.post('/scrape', async (req, res) => {
             results.screenshot = await page.screenshot({ encoding: 'base64' });
           }
         } catch (error) {
-          console.error(`Action error: ${error.message}`);
+          results.actionError = `Action error: ${error.message}`;
         }
       }
     }
 
     results.pageTitle = await page.title();
 
-    await browser.close();
-
-    res.json({
-      success: true,
-      data: results
-    });
-
-    // 🧠 This ensures n8n or other clients know the response is done
-    res.end();
-
+    res.setHeader('Content-Type', 'application/json');
+    res.status(200).send(JSON.stringify({ success: true, data: results }));
   } catch (error) {
-    console.error('Scraping error:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
-    res.end();
+    console.error('Scraping failed:', error);
+    res.status(500).send(JSON.stringify({ success: false, error: error.message }));
+  } finally {
+    if (browser) {
+      await browser.close();
+      console.log('Browser closed.');
+    }
   }
 });
-
-// Start the server
+  
 app.listen(port, () => {
   console.log(`Puppeteer service listening at http://localhost:${port}`);
 });
