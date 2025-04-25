@@ -18,6 +18,8 @@ app.get('/', (req, res) => {
 app.post('/scrape', async (req, res) => {
   const { url, selectors, actions } = req.body;
 
+  console.log('Received /scrape request:', req.body); // helpful for Railway logs
+
   if (!url) {
     return res.status(400).json({ error: 'URL is required' });
   }
@@ -34,13 +36,13 @@ app.post('/scrape', async (req, res) => {
         '--single-process',
         '--disable-gpu'
       ],
-      headless: true,
-      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH
+      headless: true
+      // REMOVED executablePath to prevent crash on Railway
     });
 
     const page = await browser.newPage();
 
-    // Set user agent and headers to avoid blocks
+    // Set user agent and headers to avoid bot detection
     await page.setUserAgent(
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
     );
@@ -48,20 +50,18 @@ app.post('/scrape', async (req, res) => {
       'Accept-Language': 'en-US,en;q=0.9'
     });
 
-    // Set viewport
     await page.setViewport({ width: 1280, height: 800 });
 
-    // Navigate with longer timeout and looser waitUntil
-    console.log('Navigating to:', url);
+    console.log(`Navigating to ${url}...`);
     await page.goto(url, {
       waitUntil: 'domcontentloaded',
       timeout: 60000 // 60 seconds
     });
-    console.log('Navigation complete');
+    console.log(`Navigation complete for ${url}`);
 
     const results = {};
 
-    // Extract selectors if provided
+    // Extract selectors if any
     if (selectors) {
       for (const [key, selector] of Object.entries(selectors)) {
         try {
@@ -95,7 +95,10 @@ app.post('/scrape', async (req, res) => {
 
     await browser.close();
 
-    res.json({ success: true, data: results });
+    res.json({
+      success: true,
+      data: results
+    });
 
   } catch (error) {
     console.error('Scraping error:', error);
@@ -104,4 +107,9 @@ app.post('/scrape', async (req, res) => {
       error: error.message
     });
   }
+});
+
+// Start the server
+app.listen(port, () => {
+  console.log(`Puppeteer service listening at http://localhost:${port}`);
 });
