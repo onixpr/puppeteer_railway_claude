@@ -17,11 +17,11 @@ app.get('/', (req, res) => {
 // Scrape endpoint
 app.post('/scrape', async (req, res) => {
   const { url, selectors, actions } = req.body;
-  
+
   if (!url) {
     return res.status(400).json({ error: 'URL is required' });
   }
-  
+
   try {
     const browser = await puppeteer.launch({
       args: [
@@ -37,30 +37,43 @@ app.post('/scrape', async (req, res) => {
       headless: true,
       executablePath: process.env.PUPPETEER_EXECUTABLE_PATH
     });
-    
+
     const page = await browser.newPage();
-    
+
+    // Set user agent and headers to avoid blocks
+    await page.setUserAgent(
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    );
+    await page.setExtraHTTPHeaders({
+      'Accept-Language': 'en-US,en;q=0.9'
+    });
+
     // Set viewport
     await page.setViewport({ width: 1280, height: 800 });
-    
-    // Navigate to the URL
-    await page.goto(url, { waitUntil: 'networkidle2' });
-    
-    // Execute custom actions if provided
+
+    // Navigate with longer timeout and looser waitUntil
+    console.log('Navigating to:', url);
+    await page.goto(url, {
+      waitUntil: 'domcontentloaded',
+      timeout: 60000 // 60 seconds
+    });
+    console.log('Navigation complete');
+
     const results = {};
-    
+
+    // Extract selectors if provided
     if (selectors) {
       for (const [key, selector] of Object.entries(selectors)) {
         try {
           await page.waitForSelector(selector, { timeout: 5000 });
-          results[key] = await page.$eval(selector, element => element.textContent.trim());
+          results[key] = await page.$eval(selector, el => el.textContent.trim());
         } catch (error) {
           results[key] = `Error: ${error.message}`;
         }
       }
     }
-    
-    // Process additional actions
+
+    // Perform actions if any
     if (actions) {
       for (const action of actions) {
         try {
@@ -76,18 +89,14 @@ app.post('/scrape', async (req, res) => {
         }
       }
     }
-    
-    // Get page content
+
     results.pageTitle = await page.title();
     results.fullHtml = await page.content();
-    
+
     await browser.close();
-    
-    res.json({
-      success: true,
-      data: results
-    });
-    
+
+    res.json({ success: true, data: results });
+
   } catch (error) {
     console.error('Scraping error:', error);
     res.status(500).json({
@@ -95,8 +104,4 @@ app.post('/scrape', async (req, res) => {
       error: error.message
     });
   }
-});
-
-app.listen(port, () => {
-  console.log(`Puppeteer service listening at http://localhost:${port}`);
 });
