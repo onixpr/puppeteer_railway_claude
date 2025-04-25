@@ -9,7 +9,7 @@ const port = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 
-// Health check endpoint
+// Health check
 app.get('/', (req, res) => {
   res.send('Puppeteer service running');
 });
@@ -18,7 +18,7 @@ app.get('/', (req, res) => {
 app.post('/scrape', async (req, res) => {
   const { url, selectors, actions } = req.body;
 
-  console.log('Received /scrape request:', req.body); // helpful for Railway logs
+  console.log('Incoming request to /scrape:', req.body);
 
   if (!url) {
     return res.status(400).json({ error: 'URL is required' });
@@ -37,12 +37,11 @@ app.post('/scrape', async (req, res) => {
         '--disable-gpu'
       ],
       headless: true
-      // REMOVED executablePath to prevent crash on Railway
     });
 
     const page = await browser.newPage();
 
-    // Set user agent and headers to avoid bot detection
+    // Fake a real user to avoid bot blocking
     await page.setUserAgent(
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
     );
@@ -52,16 +51,15 @@ app.post('/scrape', async (req, res) => {
 
     await page.setViewport({ width: 1280, height: 800 });
 
-    console.log(`Navigating to ${url}...`);
+    console.log(`Navigating to: ${url}`);
     await page.goto(url, {
       waitUntil: 'domcontentloaded',
-      timeout: 60000 // 60 seconds
+      timeout: 60000
     });
-    console.log(`Navigation complete for ${url}`);
 
     const results = {};
 
-    // Extract selectors if any
+    // Extract selectors
     if (selectors) {
       for (const [key, selector] of Object.entries(selectors)) {
         try {
@@ -73,7 +71,7 @@ app.post('/scrape', async (req, res) => {
       }
     }
 
-    // Perform actions if any
+    // Perform actions
     if (actions) {
       for (const action of actions) {
         try {
@@ -91,7 +89,6 @@ app.post('/scrape', async (req, res) => {
     }
 
     results.pageTitle = await page.title();
-    results.fullHtml = await page.content();
 
     await browser.close();
 
@@ -100,12 +97,16 @@ app.post('/scrape', async (req, res) => {
       data: results
     });
 
+    // 🧠 This ensures n8n or other clients know the response is done
+    res.end();
+
   } catch (error) {
     console.error('Scraping error:', error);
     res.status(500).json({
       success: false,
       error: error.message
     });
+    res.end();
   }
 });
 
